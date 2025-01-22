@@ -8,7 +8,6 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import torch
 from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms
 import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
