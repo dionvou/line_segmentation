@@ -101,9 +101,10 @@ def get_transforms(data, cfg):
     if data == 'train':
         # Use values from cfg to define training augmentations
         transform = A.Compose([
-            A.HorizontalFlip(p=cfg['train_augmentations']['flip_prob']),
-            A.VerticalFlip(p=cfg['train_augmentations']['flip_prob']),
-            A.RandomRotate90(p=cfg['train_augmentations']['rotate_prob']),
+            A.Rotate(limit=(-180, 180), p=cfg['train_augmentations']['rotate_prob']),
+            # A.HorizontalFlip(p=cfg['train_augmentations']['flip_prob']),
+            # A.VerticalFlip(p=cfg['train_augmentations']['flip_prob']),
+            # A.RandomRotate90(p=cfg['train_augmentations']['rotate_prob']),
             A.RandomBrightnessContrast(p=cfg['train_augmentations']['brightness_contrast_prob']),
             # A.Resize(cfg['train_augmentations']['resize_height'], cfg['train_augmentations']['resize_width']),
             ToTensorV2()
@@ -333,7 +334,7 @@ labels_path = 'data/pretrain/labels'
 cfg = {
     'train_augmentations': {
         'flip_prob': 0.5,
-        'rotate_prob': 0.5,
+        'rotate_prob': 0.6,
         'brightness_contrast_prob': 0.2,
         # 'resize_height': 512,
         # 'resize_width': 512
