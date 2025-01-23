@@ -357,4 +357,4 @@ print('len valid: ', len(valid_dataloader))
 
 model = UNetWithAttention(in_channels=3, out_channels=1)
 # Training loop
-train(model, dataloader, valid_dataloader, epochs=2, lr=1e-4, device='cuda', patience=5)
+train(model, dataloader, valid_dataloader, epochs=200, lr=1e-4, device='cuda', patience=5)
