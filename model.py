@@ -173,7 +173,10 @@ def train(model, train_loader, valid_loader, epochs=10, lr=1e-4, device='cuda', 
             # If validation loss improves, save the model and reset the patience counter
             best_val_loss = avg_val_loss
             epochs_without_improvement = 0
-            best_model_state = model.state_dict()  # Save the best model
+            # best_model_state = model.state_dict()  # Save the best model
+            model_save_path = "best_model.pth"
+            torch.save(best_model_state, model_save_path)
+
         else:
             # If validation loss doesn't improve, increment the counter
             epochs_without_improvement += 1
