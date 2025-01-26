@@ -14,7 +14,7 @@ import torch.nn.functional as F
 
 
 class LineSegmentationDataset(Dataset):
-    def __init__(self, images_path, labels_path, transform=None, valid=False, tile_size=(256, 256), stride=256):
+    def __init__(self, images_path, labels_path, transform=None, valid=False, tile_size=(384, 384), stride=384):
         """
         Args:
             images_path (str): Path to the folder containing image files.
@@ -101,12 +101,11 @@ def get_transforms(data, cfg):
     if data == 'train':
         # Use values from cfg to define training augmentations
         transform = A.Compose([
-            A.Rotate(limit=(-180, 180), p=cfg['train_augmentations']['rotate_prob']),
+            A.Rotate(limit=(-90, 90), p=cfg['train_augmentations']['rotate_prob']),
             # A.HorizontalFlip(p=cfg['train_augmentations']['flip_prob']),
             # A.VerticalFlip(p=cfg['train_augmentations']['flip_prob']),
-            # A.RandomRotate90(p=cfg['train_augmentations']['rotate_prob']),
             A.RandomBrightnessContrast(p=cfg['train_augmentations']['brightness_contrast_prob']),
-            # A.Resize(cfg['train_augmentations']['resize_height'], cfg['train_augmentations']['resize_width']),
+            A.RandomResizedCrop(size=(cfg['train_augmentations']['resize_height'], cfg['train_augmentations']['resize_width']), scale=(0.8, 1.0), p=1),
             ToTensorV2()
         ], is_check_shapes=False)  # Disable shape consistency check
     elif data == 'valid':
@@ -174,7 +173,7 @@ def train(model, train_loader, valid_loader, epochs=10, lr=1e-4, device='cuda', 
             # If validation loss improves, save the model and reset the patience counter
             best_val_loss = avg_val_loss
             epochs_without_improvement = 0
-            # best_model_state = model.state_dict()  # Save the best model
+            best_model_state = model.state_dict()  # Save the best model
             model_save_path = "best_model.pth"
             torch.save(best_model_state, model_save_path)
 
@@ -235,13 +234,13 @@ class UNetWithAttention(nn.Module):
         self.enc3 = self.conv_block_dil(128, 256, dilation=1)
         self.enc4 = self.conv_block_dil(256, 512, dilation=1)
 
-        # Bottleneck
-        self.bottleneck = self.conv_block(512, 1024, dilation=1)
+        # # Bottleneck
+        # self.bottleneck = self.conv_block(512, 1024, dilation=1)
 
-        # Expanding Path (Decoder)
-        self.upconv4 = self.upconv_block(1024, 512)
-        self.dec_conv4 = self.conv_block(1024, 512, dilation=1)
-        self.att4 = AttentionGate(512, 512, 256)
+        # # Expanding Path (Decoder)
+        # self.upconv4 = self.upconv_block(1024, 512)
+        # self.dec_conv4 = self.conv_block(1024, 512, dilation=1)
+        # self.att4 = AttentionGate(512, 512, 256)
 
         self.upconv3 = self.upconv_block(512, 256)
         self.dec_conv3 = self.conv_block(512, 256, dilation=1)
@@ -263,9 +262,11 @@ class UNetWithAttention(nn.Module):
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=dilation, dilation=dilation),
             nn.BatchNorm2d(out_channels),  # Add BatchNorm after ReLU
             nn.ReLU(inplace=True),
+            nn.Dropout2d(0.3),
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=dilation, dilation=dilation),
             nn.BatchNorm2d(out_channels),   # Add BatchNorm after ReLU
-            nn.ReLU(inplace=True)
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(0.3)
         )
 
     def conv_block_dil(self, in_channels, out_channels, dilation):
@@ -273,12 +274,15 @@ class UNetWithAttention(nn.Module):
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, dilation=1),
             nn.BatchNorm2d(out_channels),  # Add BatchNorm after ReLU
             nn.ReLU(inplace=True),
+            nn.Dropout2d(0.3),
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=2, dilation=2),
             nn.BatchNorm2d(out_channels),   # Add BatchNorm after ReLU
             nn.ReLU(inplace=True),
+            nn.Dropout2d(0.3),
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=4, dilation=4),
             nn.BatchNorm2d(out_channels),   # Add BatchNorm after ReLU
-            nn.ReLU(inplace=True)
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(0.3)
         )
 
     def upconv_block(self, in_channels, out_channels):
@@ -295,31 +299,27 @@ class UNetWithAttention(nn.Module):
         enc4 = self.enc4(F.max_pool2d(enc3, 2))
 
         # Bottleneck
-        bottleneck = self.bottleneck(F.max_pool2d(enc4, 2))
+        # bottleneck = self.bottleneck(F.max_pool2d(enc4, 2))
 
         # Expanding Path with Attention Gates
-        up4 = self.upconv4(bottleneck)
+        # up4 = self.upconv4(bottleneck)
         # att4 = self.att4(up4, enc4)  # Apply attention gate
-        up4 = torch.cat([up4, enc4], dim=1)
-        # up4 = torch.cat([up4, att4], dim=1)
-        up4 = self.dec_conv4(up4)
+        # up4 = torch.cat([up4, enc4], dim=1)
+        # up4 = self.dec_conv4(up4)
 
-        up3 = self.upconv3(up4)
-        # att3 = self.att3(up3, enc3)  # Apply attention gate
-        up3 = torch.cat([up3, enc3], dim=1)
-        # up3 = torch.cat([up3, att3], dim=1)
+        up3 = self.upconv3(enc4)
+        att3 = self.att3(up3, enc3)  # Apply attention gate
+        up3 = torch.cat([up3, att3], dim=1)
         up3 = self.dec_conv3(up3)
 
         up2 = self.upconv2(up3)
-        up2 = torch.cat([up2, enc2], dim=1)
-        # att2 = self.att2(up2, enc2)  # Apply attention gate
-        # up2 = torch.cat([up2, att2], dim=1)
+        att2 = self.att2(up2, enc2)  # Apply attention gate
+        up2 = torch.cat([up2, att2], dim=1)
         up2 = self.dec_conv2(up2)
 
         up1 = self.upconv1(up2)
-        up1 = torch.cat([up1, enc1], dim=1)
-        # att1 = self.att1(up1, enc1)  # Apply attention gate
-        # up1 = torch.cat([up1, att1], dim=1)
+        att1 = self.att1(up1, enc1)  # Apply attention gate
+        up1 = torch.cat([up1, att1], dim=1)
         up1 = self.dec_conv1(up1)
 
         # Final Convolution
@@ -336,8 +336,8 @@ cfg = {
         'flip_prob': 0.5,
         'rotate_prob': 0.6,
         'brightness_contrast_prob': 0.2,
-        # 'resize_height': 512,
-        # 'resize_width': 512
+        'resize_height': 384,
+        'resize_width': 384
     },
     'valid_augmentations': {
         'to_tensor': True
@@ -345,7 +345,7 @@ cfg = {
 }
 # Instantiate the dataset
 dataset = LineSegmentationDataset(images_path, labels_path, transform=get_transforms('train', cfg))
-dataloader = DataLoader(dataset, batch_size=2, shuffle=True)
+dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
 print('len train: ', len(dataloader))
 
 
