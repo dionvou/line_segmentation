@@ -194,144 +194,11 @@ def train(model, train_loader, valid_loader, epochs=10, lr=1e-4, device='cuda', 
 
     print("Training complete.")
 
-# class AttentionGate(nn.Module):
-#     def __init__(self,F_g,F_l,F_int):
-#         super(AttentionGate,self).__init__()
-#         self.W_g = nn.Sequential(
-#             nn.Conv2d(F_g, F_int, kernel_size=1,stride=1,padding=0,bias=True),
-#             nn.BatchNorm2d(F_int)
-#             )
-
-#         self.W_x = nn.Sequential(
-#             nn.Conv2d(F_l, F_int, kernel_size=1,stride=1,padding=0,bias=True),
-#             nn.BatchNorm2d(F_int)
-#         )
-
-#         self.psi = nn.Sequential(
-#             nn.Conv2d(F_int, 1, kernel_size=1,stride=1,padding=0,bias=True),
-#             nn.BatchNorm2d(1),
-#             nn.Sigmoid()
-#         )
-
-#         self.relu = nn.ReLU(inplace=True)
-
-#     def forward(self,g,x):
-#         g1 = self.W_g(g)
-#         x1 = self.W_x(x)
-#         psi = self.relu(g1+x1)
-#         psi = self.psi(psi)
-
-#         return x*psi
-
-
-# class UNetWithAttention(nn.Module):
-#     def __init__(self, in_channels, out_channels):
-#         super(UNetWithAttention, self).__init__()
-
-#         # Contracting Path (Encoder)
-#         self.enc1 = self.conv_block_dil(in_channels, 64, dilation=1)
-#         self.enc2 = self.conv_block_dil(64, 128, dilation=1)
-#         self.enc3 = self.conv_block_dil(128, 256, dilation=1)
-#         self.enc4 = self.conv_block_dil(256, 512, dilation=1)
-
-#         # # Bottleneck
-#         # self.bottleneck = self.conv_block(512, 1024, dilation=1)
-
-#         # # Expanding Path (Decoder)
-#         # self.upconv4 = self.upconv_block(1024, 512)
-#         # self.dec_conv4 = self.conv_block(1024, 512, dilation=1)
-#         # self.att4 = AttentionGate(512, 512, 256)
-
-#         self.upconv3 = self.upconv_block(512, 256)
-#         self.dec_conv3 = self.conv_block(512, 256, dilation=1)
-#         self.att3 = AttentionGate(256, 256, 128)
-
-#         self.upconv2 = self.upconv_block(256, 128)
-#         self.dec_conv2 = self.conv_block(256, 128, dilation=1)
-#         self.att2 = AttentionGate(128, 128, 64)
-
-#         self.upconv1 = self.upconv_block(128, 64)
-#         self.dec_conv1 = self.conv_block(128, 64, dilation=1)
-#         self.att1 = AttentionGate(64, 64, 1)
-
-#         # Final 1x1 Convolution
-#         self.final_conv = nn.Conv2d(64, out_channels, kernel_size=1)
-
-#     def conv_block(self, in_channels, out_channels, dilation):
-#         return nn.Sequential(
-#             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=dilation, dilation=dilation),
-#             nn.BatchNorm2d(out_channels),  # Add BatchNorm after ReLU
-#             nn.ReLU(inplace=True),
-#             nn.Dropout2d(0.3),
-#             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=dilation, dilation=dilation),
-#             nn.BatchNorm2d(out_channels),   # Add BatchNorm after ReLU
-#             nn.ReLU(inplace=True),
-#             nn.Dropout2d(0.3)
-#         )
-
-#     def conv_block_dil(self, in_channels, out_channels, dilation):
-#         return nn.Sequential(
-#             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, dilation=1),
-#             nn.BatchNorm2d(out_channels),  # Add BatchNorm after ReLU
-#             nn.ReLU(inplace=True),
-#             nn.Dropout2d(0.3),
-#             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=2, dilation=2),
-#             nn.BatchNorm2d(out_channels),   # Add BatchNorm after ReLU
-#             nn.ReLU(inplace=True),
-#             nn.Dropout2d(0.3),
-#             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=4, dilation=4),
-#             nn.BatchNorm2d(out_channels),   # Add BatchNorm after ReLU
-#             nn.ReLU(inplace=True),
-#             nn.Dropout2d(0.3)
-#         )
-
-#     def upconv_block(self, in_channels, out_channels):
-#         return nn.Sequential(
-#             nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2),
-#             nn.ReLU(inplace=True)
-#         )
-
-#     def forward(self, x):
-#         # Contracting Path
-#         enc1 = self.enc1(x)
-#         enc2 = self.enc2(F.max_pool2d(enc1, 2))
-#         enc3 = self.enc3(F.max_pool2d(enc2, 2))
-#         enc4 = self.enc4(F.max_pool2d(enc3, 2))
-
-#         # Bottleneck
-#         # bottleneck = self.bottleneck(F.max_pool2d(enc4, 2))
-
-#         # Expanding Path with Attention Gates
-#         # up4 = self.upconv4(bottleneck)
-#         # att4 = self.att4(up4, enc4)  # Apply attention gate
-#         # up4 = torch.cat([up4, enc4], dim=1)
-#         # up4 = self.dec_conv4(up4)
-
-#         up3 = self.upconv3(enc4)
-#         att3 = self.att3(up3, enc3)  # Apply attention gate
-#         up3 = torch.cat([up3, att3], dim=1)
-#         up3 = self.dec_conv3(up3)
-
-#         up2 = self.upconv2(up3)
-#         att2 = self.att2(up2, enc2)  # Apply attention gate
-#         up2 = torch.cat([up2, att2], dim=1)
-#         up2 = self.dec_conv2(up2)
-
-#         up1 = self.upconv1(up2)
-#         att1 = self.att1(up1, enc1)  # Apply attention gate
-#         up1 = torch.cat([up1, att1], dim=1)
-#         up1 = self.dec_conv1(up1)
-
-#         # Final Convolution
-#         out = self.final_conv(up1)
-#         return out
-
-
 class SpatialAttention(nn.Module):
     def __init__(self, kernel_size=7):
         super(SpatialAttention, self).__init__()
         padding = (kernel_size - 1) // 2  # Ensure the output size is same as input size
-        self.conv = nn.Conv2d(2, 1, kernel_size=kernel_size, padding=padding*4, bias=False, dilation=4)
+        self.conv = nn.Conv2d(2, 1, kernel_size=kernel_size, padding=padding, bias=False, dilation=1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -341,7 +208,36 @@ class SpatialAttention(nn.Module):
         combined = torch.cat([max_pool, avg_pool], dim=1)  # Concatenate along the channel axis
         attention = self.sigmoid(self.conv(combined))     # Convolve and apply sigmoid
         return x * attention
-        
+
+class AttentionGate(nn.Module):
+    def __init__(self,F_g,F_l,F_int):
+        super(AttentionGate,self).__init__()
+        self.W_g = nn.Sequential(
+            nn.Conv2d(F_g, F_int, kernel_size=1,stride=1,padding=0,bias=True),
+            nn.BatchNorm2d(F_int)
+            )
+
+        self.W_x = nn.Sequential(
+            nn.Conv2d(F_l, F_int, kernel_size=1,stride=1,padding=0,bias=True),
+            nn.BatchNorm2d(F_int)
+        )
+
+        self.psi = nn.Sequential(
+            nn.Conv2d(F_int, 1, kernel_size=1,stride=1,padding=0,bias=True),
+            nn.BatchNorm2d(1),
+            nn.Sigmoid()
+        )
+
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self,g,x):
+        g1 = self.W_g(g)
+        x1 = self.W_x(x)
+        psi = self.relu(g1+x1)
+        psi = self.psi(psi)
+
+        return x*psi
+
 # class SpatialAttention(nn.Module):
 #     def __init__(self, in_c):
 #         super().__init__()
@@ -366,28 +262,28 @@ class UNetWithAttention(nn.Module):
 
         # Bottleneck
         self.bottleneck = self.conv_block(512, 1024, dilation=1)
-        self.spatial = SpatialAttention()
+        # self.spatial = SpatialAttention()
 
         # Expanding Path (Decoder)
         self.upconv4 = self.upconv_block(1024, 512)
         self.dec_conv4 = self.conv_block(1024, 512, dilation=1)
-        # self.att4 = AttentionGate(512, 512, 256)
-        # self.spatial4 = SpatialAttention(512)  # Spatial Attention
+        self.att4 = AttentionGate(512, 512, 256)
+        # self.spatial4 = SpatialAttention()  # Spatial Attention
 
         self.upconv3 = self.upconv_block(512, 256)
         self.dec_conv3 = self.conv_block(512, 256, dilation=1)
-        # self.att3 = AttentionGate(256, 256, 128)
-        # self.spatial3 = SpatialAttention(256)  # Spatial Attention
+        self.att3 = AttentionGate(256, 256, 128)
+        # self.spatial3 = SpatialAttention()  # Spatial Attention
 
         self.upconv2 = self.upconv_block(256, 128)
         self.dec_conv2 = self.conv_block(256, 128, dilation=1)
-        # self.att2 = AttentionGate(128, 128, 64)
-        # self.spatial2 = SpatialAttention(128)  # Spatial Attention
+        self.att2 = AttentionGate(128, 128, 64)
+        # self.spatial2 = SpatialAttention()  # Spatial Attention
 
         self.upconv1 = self.upconv_block(128, 64)
         self.dec_conv1 = self.conv_block(128, 64, dilation=1)
-        # self.att1 = AttentionGate(64, 64, 1)
-        # self.spatial1 = SpatialAttention(64)  # Spatial Attention
+        self.att1 = AttentionGate(64, 64, 1)
+        # self.spatial1 = SpatialAttention()  # Spatial Attention
 
         # Final 1x1 Convolution
         self.final_conv = nn.Conv2d(64, out_channels, kernel_size=1)
@@ -398,7 +294,7 @@ class UNetWithAttention(nn.Module):
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=dilation, dilation=dilation),
             nn.BatchNorm2d(out_channels),  # Add BatchNorm after ReLU
             nn.ReLU(inplace=True),
-            # nn.Dropout2d(p=0.2),
+            nn.Dropout2d(p=0.2),
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=dilation, dilation=dilation),
             nn.BatchNorm2d(out_channels),   # Add BatchNorm after ReLU
             nn.ReLU(inplace=True),
@@ -410,23 +306,23 @@ class UNetWithAttention(nn.Module):
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, dilation=1),
             nn.BatchNorm2d(out_channels),  # Add BatchNorm after ReLU
             nn.ReLU(inplace=True),
-            # nn.Dropout2d(p=0.2),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, dilation=1),
+            nn.Dropout2d(p=0.2),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=2, dilation=2),
             nn.BatchNorm2d(out_channels),   # Add BatchNorm after ReLU
             nn.ReLU(inplace=True),
-            # nn.Dropout2d(p=0.2),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, dilation=1),
+            nn.Dropout2d(p=0.2),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=4, dilation=4),
             nn.BatchNorm2d(out_channels),   # Add BatchNorm after ReLU
             nn.ReLU(inplace=True),
-            nn.Dropout2d(p=0.3),
-            # nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=8, dilation=8),
-            # nn.BatchNorm2d(out_channels),   # Add BatchNorm after ReLU
-            # nn.ReLU(inplace=True),
-            # # nn.Dropout2d(p=0.2),
-            # nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=16, dilation=16),
-            # nn.BatchNorm2d(out_channels),   # Add BatchNorm after ReLU
-            # nn.ReLU(inplace=True),
-            # # nn.Dropout2d(p=0.2),
+            nn.Dropout2d(p=0.2),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=8, dilation=8),
+            nn.BatchNorm2d(out_channels),   # Add BatchNorm after ReLU
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(p=0.2),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=16, dilation=16),
+            nn.BatchNorm2d(out_channels),   # Add BatchNorm after ReLU
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(p=0.2),
             # nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=32, dilation=32),
             # nn.BatchNorm2d(out_channels),   # Add BatchNorm after ReLU
             # nn.ReLU(inplace=True),
@@ -449,37 +345,61 @@ class UNetWithAttention(nn.Module):
 
         # Bottleneck
         bottleneck = self.bottleneck(F.max_pool2d(enc4, 2))
-        bottleneck = self.spatial(bottleneck)
+        # bottleneck = self.spatial(bottleneck)
 
 
         # Expanding Path with Attention Gates and Spatial Attention
         up4 = self.upconv4(bottleneck)
-        # att4 = self.att4(up4, enc4)  # Apply attention gate
-        up4 = torch.cat([up4, enc4], dim=1)
+        att4 = self.att4(up4, enc4)  # Apply attention gate
+        up4 = torch.cat([up4, att4], dim=1)
         up4 = self.dec_conv4(up4)
         # up4 = self.spatial4(up4)  # Apply spatial attention
 
         up3 = self.upconv3(up4)
-        # att3 = self.att3(up3, enc3)  # Apply attention gate
-        up3 = torch.cat([up3, enc3], dim=1)
+        att3 = self.att3(up3, enc3)  # Apply attention gate
+        up3 = torch.cat([up3, att3], dim=1)
         up3 = self.dec_conv3(up3)
         # up3 = self.spatial3(up3)  # Apply spatial attention
 
         up2 = self.upconv2(up3)
-        # att2 = self.att2(up2, enc2)  # Apply attention gate
-        up2 = torch.cat([up2, enc2], dim=1)
+        att2 = self.att2(up2, enc2)  # Apply attention gate
+        up2 = torch.cat([up2, att2], dim=1)
         up2 = self.dec_conv2(up2)
         # up2 = self.spatial2(up2)  # Apply spatial attention
 
         up1 = self.upconv1(up2)
-        # att1 = self.att1(up1, enc1)  # Apply attention gate
-        up1 = torch.cat([up1, enc1], dim=1)
+        att1 = self.att1(up1, enc1)  # Apply attention gate
+        up1 = torch.cat([up1, att1], dim=1)
         up1 = self.dec_conv1(up1)
         # up1 = self.spatial1(up1)  # Apply spatial attention
 
         # Final Convolution
         out = self.final_conv(up1)
         return out
+
+def freeze_encoder(model):
+    for param in model.enc1.parameters():
+        param.requires_grad = False
+    for param in model.enc2.parameters():
+        param.requires_grad = False
+    for param in model.enc3.parameters():
+        param.requires_grad = False
+    for param in model.enc4.parameters():
+        param.requires_grad = False
+    for param in model.bottleneck.parameters():
+        param.requires_grad = False
+
+def unfreeze_encoder(model):
+    for param in model.enc1.parameters():
+        param.requires_grad = True
+    for param in model.enc2.parameters():
+        param.requires_grad = True
+    for param in model.enc3.parameters():
+        param.requires_grad = True
+    for param in model.enc4.parameters():
+        param.requires_grad = True
+    for param in model.bottleneck.parameters():
+        param.requires_grad = True
 
 # RUNNING
 # Path to your image and label directories
