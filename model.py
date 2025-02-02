@@ -9,12 +9,13 @@ from albumentations.pytorch import ToTensorV2
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torch.optim as optim
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 import torch.nn as nn
 import torch.nn.functional as F
 
 
 class LineSegmentationDataset(Dataset):
-    def __init__(self, images_path, labels_path, transform=None, valid=False, tile_size=(384, 384), stride=384):
+    def __init__(self, images_path, labels_path, transform=None, valid=False, tile_size=(512, 512), stride=512):
         """
         Args:
             images_path (str): Path to the folder containing image files.
@@ -101,7 +102,7 @@ def get_transforms(data, cfg):
     if data == 'train':
         # Use values from cfg to define training augmentations
         transform = A.Compose([
-            A.Rotate(limit=(-90, 90), p=cfg['train_augmentations']['rotate_prob']),
+            # A.Rotate(limit=(-90, 90), p=cfg['train_augmentations']['rotate_prob']),
             # A.HorizontalFlip(p=cfg['train_augmentations']['flip_prob']),
             # A.VerticalFlip(p=cfg['train_augmentations']['flip_prob']),
             A.RandomBrightnessContrast(p=cfg['train_augmentations']['brightness_contrast_prob']),
@@ -117,13 +118,14 @@ def get_transforms(data, cfg):
     return transform
 
 
-# best_model_state = None
 def train(model, train_loader, valid_loader, epochs=10, lr=1e-4, device='cuda', patience=10):
     model = model.to(device)
 
     # Define loss function and optimizer
     criterion = nn.BCEWithLogitsLoss().to(device)  # Assuming binary segmentation
     optimizer = optim.AdamW(model.parameters(), lr=lr)
+    scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=2, eta_min=1e-6, verbose=True)
+
 
     # Initialize variables for early stopping
     best_val_loss = float('inf')  # Start with a very high value
@@ -168,6 +170,8 @@ def train(model, train_loader, valid_loader, epochs=10, lr=1e-4, device='cuda', 
             avg_val_loss = val_loss / len(valid_loader)
             print(f"Epoch {epoch+1} - Average Validation Loss: {avg_val_loss:.4f}")
 
+        scheduler.step(epoch + 1)
+        
         # Early Stopping Logic
         if avg_val_loss < best_val_loss:
             # If validation loss improves, save the model and reset the patience counter
@@ -237,18 +241,6 @@ class AttentionGate(nn.Module):
         psi = self.psi(psi)
 
         return x*psi
-
-# class SpatialAttention(nn.Module):
-#     def __init__(self, in_c):
-#         super().__init__()
-
-#         self.conv1 = nn.Conv2d(in_c, 1, kernel_size=11, padding=5)
-#         self.sigmoid = nn.Sigmoid()
-
-#     def forward(self, x):
-#         attention = self.conv1(x)
-#         attention = self.sigmoid(attention)
-#         return x * attention
 
 class UNetWithAttention(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -350,26 +342,26 @@ class UNetWithAttention(nn.Module):
 
         # Expanding Path with Attention Gates and Spatial Attention
         up4 = self.upconv4(bottleneck)
-        att4 = self.att4(up4, enc4)  # Apply attention gate
-        up4 = torch.cat([up4, att4], dim=1)
+        # att4 = self.att4(up4, enc4)  # Apply attention gate
+        up4 = torch.cat([up4, enc4], dim=1)
         up4 = self.dec_conv4(up4)
         # up4 = self.spatial4(up4)  # Apply spatial attention
 
         up3 = self.upconv3(up4)
-        att3 = self.att3(up3, enc3)  # Apply attention gate
-        up3 = torch.cat([up3, att3], dim=1)
+        # att3 = self.att3(up3, enc3)  # Apply attention gate
+        up3 = torch.cat([up3, enc3], dim=1)
         up3 = self.dec_conv3(up3)
         # up3 = self.spatial3(up3)  # Apply spatial attention
 
         up2 = self.upconv2(up3)
-        att2 = self.att2(up2, enc2)  # Apply attention gate
-        up2 = torch.cat([up2, att2], dim=1)
+        # att2 = self.att2(up2, enc2)  # Apply attention gate
+        up2 = torch.cat([up2, enc2], dim=1)
         up2 = self.dec_conv2(up2)
         # up2 = self.spatial2(up2)  # Apply spatial attention
 
         up1 = self.upconv1(up2)
-        att1 = self.att1(up1, enc1)  # Apply attention gate
-        up1 = torch.cat([up1, att1], dim=1)
+        # att1 = self.att1(up1, enc1)  # Apply attention gate
+        up1 = torch.cat([up1, enc1], dim=1)
         up1 = self.dec_conv1(up1)
         # up1 = self.spatial1(up1)  # Apply spatial attention
 
@@ -432,4 +424,4 @@ print('len valid: ', len(valid_dataloader))
 
 model = UNetWithAttention(in_channels=3, out_channels=1)
 # Training loop
-train(model, dataloader, valid_dataloader, epochs=200, lr=1e-4, device='cuda', patience=10)
+train(model, dataloader, valid_dataloader, epochs=200, lr=5e-4, device='cuda', patience=10)
