@@ -23,55 +23,95 @@ class SiameseExhaustiveDataset(Dataset):
         Creates dataset where each validation tile is paired with all training tiles.
         """
         self.support_image_files = glob.glob(os.path.join(support_images_path, '*.jpg'))
-        self.support_label_files = {os.path.splitext(os.path.basename(f))[0]: f for f in glob.glob(os.path.join(support_labels_path, '*.png'))}
+        self.support_label_files = [os.path.join(support_labels_path, os.path.splitext(os.path.basename(image_file))[0] + '.png')
+                                for image_file in self.support_image_files]
+        # self.support_label_files = {os.path.splitext(os.path.basename(f))[0]: f for f in glob.glob(os.path.join(support_labels_path, '*.png'))}
 
-        self.image_files = glob.glob(os.path.join(images_path, '*.jpg'))[1:3]
-        self.label_files = {os.path.splitext(os.path.basename(f))[0]: f for f in glob.glob(os.path.join(labels_path, '*.png'))}
-        
+        self.image_files = glob.glob(os.path.join(images_path, '*.jpg'))[:2]
+        self.label_files = [os.path.join(labels_path, os.path.splitext(os.path.basename(image_file))[0] + '.png')
+                                for image_file in self.image_files]
+        # self.label_files = {os.path.splitext(os.path.basename(f))[0]: f for f in glob.glob(os.path.join(labels_path, '*.png'))}
+
         self.transform = transform
         self.transform_valid = transform_valid
         self.tile_size = tile_size
         self.stride = stride
         if valid:
-            # HARDCODED
+            # # HARDCODED
             # self.image_files = self.image_files[1:3]
-            # Precompute all  tiles
+            # # Precompute all  tiles
+            # self.tiles = []
+            # for img_idx, image_file in enumerate(self.image_files):
+            #     query_img = Image.open(image_file)
+            #     query_label = Image.open(self.label_files[os.path.splitext(os.path.basename(image_file))[0]]).convert('L')
+            #     tiles, label_tiles = self.get_tiles(query_img, query_label)
+            #     for tile, label_tile in zip(tiles, label_tiles):
+            #         self.tiles.append((img_idx, tile, label_tile))
+
+            # # Precompute all support tiles
+            # self.support_tiles = []
+            # for img_idx, image_file in enumerate(self.support_image_files):
+            #     support_img = Image.open(image_file)
+            #     support_label = Image.open(self.support_label_files[os.path.splitext(os.path.basename(image_file))[0]]).convert('L')
+            #     tiles, label_tiles = self.get_tiles(support_img, support_label)
+            #     for tile, label_tile in zip(tiles, label_tiles):
+            #         self.support_tiles.append((img_idx, tile, label_tile))
+                        # Precompute all tiles for validation images
             self.tiles = []
-            for img_idx, image_file in enumerate(self.image_files):
+            for img_idx, (image_file, label_file) in enumerate(zip(self.image_files, self.label_files)):
                 query_img = Image.open(image_file)
-                query_label = Image.open(self.label_files[os.path.splitext(os.path.basename(image_file))[0]]).convert('L')
+                query_label = Image.open(label_file).convert('L')
                 tiles, label_tiles = self.get_tiles(query_img, query_label)
                 for tile, label_tile in zip(tiles, label_tiles):
                     self.tiles.append((img_idx, tile, label_tile))
 
-            # Precompute all support tiles
+            # Precompute all tiles for support images
             self.support_tiles = []
-            for img_idx, image_file in enumerate(self.support_image_files):
+            for img_idx, (image_file, label_file) in enumerate(zip(self.support_image_files, self.support_label_files)):
                 support_img = Image.open(image_file)
-                support_label = Image.open(self.support_label_files[os.path.splitext(os.path.basename(image_file))[0]]).convert('L')
+                support_label = Image.open(label_file).convert('L')
                 tiles, label_tiles = self.get_tiles(support_img, support_label)
                 for tile, label_tile in zip(tiles, label_tiles):
                     self.support_tiles.append((img_idx, tile, label_tile))
+
         else:
-            # HARDCODED
+            # # HARDCODED
             # self.image_files = self.image_files[1:3]
-            # Precompute all query tiles
+            # # Precompute all query tiles
+            # self.tiles = []
+            # for img_idx, image_file in enumerate(self.image_files):
+            #     query_img = Image.open(image_file)
+            #     query_label = Image.open(self.label_files[os.path.splitext(os.path.basename(image_file))[0]]).convert('L')
+            #     tiles, label_tiles = self.get_tiles(query_img, query_label)
+            #     for tile, label_tile in zip(tiles, label_tiles):
+            #         self.tiles.append((img_idx, tile, label_tile))
+
+            # # Precompute all support tiles
+            # self.support_tiles = []
+            # for img_idx, image_file in enumerate(self.support_image_files):
+            #     support_img = Image.open(image_file)
+            #     support_label = Image.open(self.support_label_files[os.path.splitext(os.path.basename(image_file))[0]]).convert('L')
+            #     tiles, label_tiles = self.get_tiles(support_img, support_label)
+            #     for tile, label_tile in zip(tiles, label_tiles):
+            #         self.support_tiles.append((img_idx, tile, label_tile))
+                        # Precompute all tiles for validation images
             self.tiles = []
-            for img_idx, image_file in enumerate(self.image_files):
+            for img_idx, (image_file, label_file) in enumerate(zip(self.image_files, self.label_files)):
                 query_img = Image.open(image_file)
-                query_label = Image.open(self.label_files[os.path.splitext(os.path.basename(image_file))[0]]).convert('L')
+                query_label = Image.open(label_file).convert('L')
                 tiles, label_tiles = self.get_tiles(query_img, query_label)
                 for tile, label_tile in zip(tiles, label_tiles):
                     self.tiles.append((img_idx, tile, label_tile))
 
-            # Precompute all support tiles
+            # Precompute all tiles for support images
             self.support_tiles = []
-            for img_idx, image_file in enumerate(self.support_image_files):
+            for img_idx, (image_file, label_file) in enumerate(zip(self.support_image_files, self.support_label_files)):
                 support_img = Image.open(image_file)
-                support_label = Image.open(self.support_label_files[os.path.splitext(os.path.basename(image_file))[0]]).convert('L')
+                support_label = Image.open(label_file).convert('L')
                 tiles, label_tiles = self.get_tiles(support_img, support_label)
                 for tile, label_tile in zip(tiles, label_tiles):
                     self.support_tiles.append((img_idx, tile, label_tile))
+
 
     def __len__(self):
         return len(self.tiles)

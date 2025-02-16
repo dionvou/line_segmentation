@@ -341,7 +341,7 @@ def evaluate_IU(dataloader, predictions, th=0.5):
 
     for file, pred_mask in zip(dataset.label_files, predictions):
         # Load ground truth label
-        label = Image.open(dataset.label_files[file]).convert('L')
+        label = Image.open(file).convert('L')
         label = np.array(label, dtype=np.uint8) / 255
         label = label > 0.5  # Convert to binary mask
 
