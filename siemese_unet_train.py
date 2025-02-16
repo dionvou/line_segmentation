@@ -25,16 +25,16 @@ class SiameseExhaustiveDataset(Dataset):
         self.support_image_files = glob.glob(os.path.join(support_images_path, '*.jpg'))
         self.support_label_files = {os.path.splitext(os.path.basename(f))[0]: f for f in glob.glob(os.path.join(support_labels_path, '*.png'))}
 
-        self.image_files = glob.glob(os.path.join(images_path, '*.jpg'))
+        self.image_files = glob.glob(os.path.join(images_path, '*.jpg'))[1:3]
         self.label_files = {os.path.splitext(os.path.basename(f))[0]: f for f in glob.glob(os.path.join(labels_path, '*.png'))}
-
+        
         self.transform = transform
         self.transform_valid = transform_valid
         self.tile_size = tile_size
         self.stride = stride
         if valid:
             # HARDCODED
-            self.image_files = self.image_files[1:3]
+            # self.image_files = self.image_files[1:3]
             # Precompute all  tiles
             self.tiles = []
             for img_idx, image_file in enumerate(self.image_files):
@@ -54,7 +54,7 @@ class SiameseExhaustiveDataset(Dataset):
                     self.support_tiles.append((img_idx, tile, label_tile))
         else:
             # HARDCODED
-            self.image_files = self.image_files[1:3]
+            # self.image_files = self.image_files[1:3]
             # Precompute all query tiles
             self.tiles = []
             for img_idx, image_file in enumerate(self.image_files):
@@ -149,7 +149,7 @@ def get_transforms(data, cfg):
         ])
     elif data in ["valid", "test"]:
         transform = A.Compose([
-            A.Resize(cfg['valid_augmentations']['resize_height'], cfg['valid_augmentations']['resize_width']),
+            # A.Resize(cfg['valid_augmentations']['resize_height'], cfg['valid_augmentations']['resize_width']),
             ToTensorV2(),
         ])
     return transform
@@ -291,12 +291,11 @@ cfg = {
     }
 }
 
+images_path =  'data/Latin2/img-Latin2/training/'
+labels_path = 'data/Latin2/text-line-gt-Latin2/training/'
 
-images_path =  'data/Latin2/img-Latin2/img-Latin2/training/'
-labels_path = 'data/Latin2/img-Latin2/img-Latin2/training/'
-
-val_images_path =  'data/Latin2/images/img-Latin2/validation/'
-val_labels_path = 'data/Latin2/images/img-Latin2/validation/'
+val_images_path =  'data/Latin2/img-Latin2/validation/'
+val_labels_path = 'data/Latin2/text-line-gt-Latin2/validation/'
 
 # Update DataLoader
 train_dataset = SiameseExhaustiveDataset(images_path, labels_path, images_path, labels_path, transform=get_transforms('train', cfg),transform_valid=get_transforms('train', cfg))
@@ -308,12 +307,15 @@ val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False)
 model = SiameseUNetResNet50(out_channels=1)
 
 criterion = nn.BCEWithLogitsLoss()  # Pixel-wise classification loss
+print(len(train_dataloader))
+print(len(val_dataloader))
 
 
-utils.train_model(model, train_dataloader, val_dataloader, criterion, epochs=3, lr=5e-4, device='cuda', patience=10, path='model_weights/best_model.pth')
+utils.train_model(model, train_dataloader, val_dataloader, criterion, epochs=1, lr=5e-4, patience=10, path='model_weights/best_model.pth')
 preds = utils.get_predictions(model,val_dataloader)
-reconsrtucted = utils.reconstruct(val_dataloader,preds,'images')
-thresholded = utils.thresholding_images(reconsrtucted,0.3)
+reconstructed = utils.reconstruct(val_dataloader,preds,'images')
+print(len(reconstructed))
+thresholded = utils.thresholding_images(reconstructed, 0.3)
 denoised_images = [utils.remove_small_objects(img, min_size=100) for img in thresholded]
 print(utils.evaluate_IU(val_dataloader, denoised_images, 0.5))
 
