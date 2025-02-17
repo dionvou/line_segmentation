@@ -7,80 +7,80 @@ import torch.optim as optim
 import torch.nn as nn
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from PIL import Image, ImageOps
-from torch.utils.data import Dataset, DataLoader
+import torch.nn.functional as F
+from torch.cuda.amp import autocast, GradScaler  # Mixed precision training
 
 
-    
+
+
 def train_model(model, train_loader, valid_loader, criterion, epochs=10, lr=1e-4, patience=10, path='model_weights/best_model.pth'):
     """
     Trains a given model using a specified dataset and loss function.
     Implements early stopping, AdamW as optimizer and a cosine annealing learning rate scheduler.
-    
-    Args:
-        model (torch.nn.Module): The model to be trained.
-        train_loader (torch.utils.data.DataLoader): DataLoader for the training dataset.
-        valid_loader (torch.utils.data.DataLoader): DataLoader for the validation dataset.
-        criterion (torch.nn.Module): Loss function.
-        epochs (int, optional): Number of training epochs. Default is 10.
-        lr (float, optional): Learning rate for the optimizer. Default is 1e-4.
-        patience (int, optional): Number of epochs to wait for improvement before early stopping. Default is 10.
-        path (str, optional): Path to save the best model. Default is 'best_model.pth'.
-    
-    Returns:
-        None
+    Uses mixed precision for memory efficiency.
     """
-    
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
-    
+
     optimizer = optim.AdamW(model.parameters(), lr=lr)
     scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=2, eta_min=1e-6)
-    
+    scaler = torch.amp.GradScaler(device)  # ✅ Works for older PyTorch versions
+
+
     best_val_loss = float('inf')
     stopping_counter = 0
-    
+    best_model_state = None  # Store the best model state
+
     for epoch in range(epochs):
         model.train()
         total_loss = 0.0
         
         for support_imgs, support_masks, query_img, query_mask in train_loader:
-            support_imgs = torch.cat(support_imgs).to(device)
-            support_masks = torch.cat(support_masks).to(device)
-            query_img = query_img.to(device)
-            query_mask = query_mask.to(device)
+            support_imgs = torch.cat(support_imgs).to(device, dtype=torch.float16)  # Reduce precision
+            support_masks = torch.cat(support_masks).to(device, dtype=torch.float16)
+            query_img = query_img.to(device, dtype=torch.float16)
+            query_mask = query_mask.to(device, dtype=torch.float16)
             
             optimizer.zero_grad()
-            query_pred = model(support_imgs, query_img)
-            loss = criterion(query_pred.squeeze(1), query_mask)
-            loss.backward()
-            optimizer.step()
+
+            with torch.amp.autocast(device_type="cuda"):  # Enables mixed precision for efficiency
+                query_pred = model(support_imgs, query_img, support_masks)
+                loss = criterion(query_pred.squeeze(1), query_mask)
+
+            scaler.scale(loss).backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # Prevents exploding gradients
+            scaler.step(optimizer)
+            scaler.update()  # Update the scaler for next step
             
-            total_loss += loss.item()
+            total_loss += loss.detach().item()  # Use .detach() to free memory
         
         avg_train_loss = total_loss / len(train_loader)
-        
         scheduler.step()
-        
+
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
             for support_imgs, support_masks, query_img, query_mask in valid_loader:
-                support_imgs = torch.cat(support_imgs).to(device)
-                support_masks = torch.cat(support_masks).to(device)
-                query_img = query_img.to(device)
-                query_mask = query_mask.to(device)
-                
-                query_pred = model(support_imgs, query_img)
-                loss = criterion(query_pred.squeeze(1), query_mask)
+                support_imgs = torch.cat(support_imgs).to(device, dtype=torch.float16)
+                support_masks = torch.cat(support_masks).to(device, dtype=torch.float16)
+                query_img = query_img.to(device, dtype=torch.float16)
+                query_mask = query_mask.to(device, dtype=torch.float16)
+
+                with torch.amp.autocast(device_type="cuda"):
+                    query_pred = model(support_imgs, query_img, support_masks)
+                    loss = criterion(query_pred.squeeze(1), query_mask)
+
                 val_loss += loss.item()
-        
+
         avg_val_loss = val_loss / len(valid_loader)
         print(f"Epoch [{epoch+1}/{epochs}] - Train Loss: {avg_train_loss:.4f} - Validation Loss: {avg_val_loss:.4f}")
-        
+
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             stopping_counter = 0
             print('Saving model')
+            best_model_state = model.state_dict().copy()  # Save best model state
             torch.save(model.state_dict(), path)
         else:
             stopping_counter += 1
@@ -88,41 +88,184 @@ def train_model(model, train_loader, valid_loader, criterion, epochs=10, lr=1e-4
                 print(f"Early stopping triggered after {epoch+1} epochs.")
                 break
 
+    if best_model_state is not None:
+        print("Restoring best model state.")
+        model.load_state_dict(best_model_state)
+
+
 def get_predictions(model, dataloader):
     """
-    Generates predictions using a trained model.
-
-    Args:
-        model (torch.nn.Module): The trained model.
-        dataloader (torch.utils.data.DataLoader): DataLoader containing the validation or test dataset.
-        device (str, optional): Device to run the model on ('cuda' or 'cpu'). Default is 'cuda'.
-
-    Returns:
-        list of numpy arrays: List of predicted query masks as NumPy arrays.
+    Generates predictions using a trained model with reduced memory usage.
     """
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
-    model.eval()  # Set the model to evaluation mode
-    
+    model.eval()  
+
     predictions = []
     
-    with torch.no_grad():  # Disable gradient computation
+    with torch.no_grad():
         for support_imgs, support_masks, query_img, _ in dataloader:
-            # Move inputs to the specified device
-            support_imgs = torch.cat(support_imgs).to(device)
-            support_masks = torch.cat(support_masks).to(device)
-            query_img = query_img.to(device)
-            
-            # Get model prediction
-            query_pred = model(support_imgs, query_img)
-            query_pred = torch.sigmoid(query_pred.squeeze(1))  # Apply sigmoid activation
-            
-            # Convert to NumPy array and store
-            query_pred = query_pred.cpu().numpy()  # Move to CPU before converting
+            support_imgs = torch.cat(support_imgs).to(device, dtype=torch.float16)
+            support_masks = torch.cat(support_masks).to(device, dtype=torch.float16)
+            query_img = query_img.to(device, dtype=torch.float16)
+
+            with torch.amp.autocast(device_type="cuda"):
+                query_pred = model(support_imgs, query_img, support_masks)
+                query_pred = torch.sigmoid(query_pred.squeeze(1))
+
+            query_pred = query_pred.cpu().half().numpy()  # Convert to float16 before moving to CPU
             predictions.extend(query_pred)
 
-    return predictions  # List of predicted query masks
+    return predictions   
+
+import torch
+
+# def load_model_weights(model, checkpoint_path='model_weights/best_model.pth', device="cpu"):
+#     """
+#     Load weights into a given model from a checkpoint file.
+    
+#     Args:
+#         model (torch.nn.Module): The model instance to load weights into.
+#         checkpoint_path (str): Path to the saved model weights (.pth file).
+#         device (str): Device to load the model on ("cpu" or "cuda").
+#     """
+#     try:
+#         # Load the saved weights
+#         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+#         model.load_state_dict(torch.load(checkpoint_path, map_location=torch.device(device)))
+#         model.to(device)  # Move model to the specified device
+#         print(f"✅ Model weights loaded successfully from {checkpoint_path}")
+#     except Exception as e:
+#         print(f"❌ Error loading model weights: {e}")
+    
+
+def save_images(images, save_folder='images/'):
+    for idx, image in enumerate(images):
+        if save_folder is not None:
+            save_folder = save_folder
+            image = (image).astype(np.uint8)
+            image_save_path = os.path.join(save_folder, f"image_{idx + 1}.png")
+            Image.fromarray(image).save(image_save_path)
+     
+# def train_model(model, train_loader, valid_loader, criterion, epochs=10, lr=1e-4, patience=10, path='model_weights/best_model.pth'):
+#     """
+#     Trains a given model using a specified dataset and loss function.
+#     Implements early stopping, AdamW as optimizer and a cosine annealing learning rate scheduler.
+    
+#     Args:
+#         model (torch.nn.Module): The model to be trained.
+#         train_loader (torch.utils.data.DataLoader): DataLoader for the training dataset.
+#         valid_loader (torch.utils.data.DataLoader): DataLoader for the validation dataset.
+#         criterion (torch.nn.Module): Loss function.
+#         epochs (int, optional): Number of training epochs. Default is 10.
+#         lr (float, optional): Learning rate for the optimizer. Default is 1e-4.
+#         patience (int, optional): Number of epochs to wait for improvement before early stopping. Default is 10.
+#         path (str, optional): Path to save the best model. Default is 'best_model.pth'.
+    
+#     Returns:
+#         None
+#     """
+    
+#     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+#     model.to(device)
+    
+#     optimizer = optim.AdamW(model.parameters(), lr=lr)
+#     scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=2, eta_min=1e-6)
+    
+#     best_val_loss = float('inf')
+#     stopping_counter = 0
+#     best_model_state = None  # Store the best model state
+    
+#     for epoch in range(epochs):
+#         model.train()
+#         total_loss = 0.0
+        
+#         for support_imgs, support_masks, query_img, query_mask in train_loader:
+#             support_imgs = torch.cat(support_imgs).to(device)
+#             support_masks = torch.cat(support_masks).to(device)
+#             query_img = query_img.to(device)
+#             query_mask = query_mask.to(device)
+            
+#             optimizer.zero_grad()
+#             query_pred = model(support_imgs, query_img,support_masks)
+#             loss = criterion(query_pred.squeeze(1), query_mask)
+#             loss.backward()
+#             optimizer.step()
+            
+#             total_loss += loss.item()
+        
+#         avg_train_loss = total_loss / len(train_loader)
+        
+#         scheduler.step()
+        
+#         model.eval()
+#         val_loss = 0.0
+#         with torch.no_grad():
+#             for support_imgs, support_masks, query_img, query_mask in valid_loader:
+#                 support_imgs = torch.cat(support_imgs).to(device)
+#                 support_masks = torch.cat(support_masks).to(device)
+#                 query_img = query_img.to(device)
+#                 query_mask = query_mask.to(device)
+                
+#                 query_pred = model(support_imgs, query_img, support_masks)
+#                 loss = criterion(query_pred.squeeze(1), query_mask)
+#                 val_loss += loss.item()
+        
+#         avg_val_loss = val_loss / len(valid_loader)
+#         print(f"Epoch [{epoch+1}/{epochs}] - Train Loss: {avg_train_loss:.4f} - Validation Loss: {avg_val_loss:.4f}")
+        
+#         if avg_val_loss < best_val_loss:
+#             best_val_loss = avg_val_loss
+#             stopping_counter = 0
+#             print('Saving model')
+#             best_model_state = model.state_dict().copy()  # Save best model state
+#             torch.save(model.state_dict(), path)
+#         else:
+#             stopping_counter += 1
+#             if stopping_counter >= patience:
+#                 print(f"Early stopping triggered after {epoch+1} epochs.")
+#                 break
+#     if best_model_state is not None:
+#         print("Restoring best model state.")
+#         model.load_state_dict(best_model_state)
+    
+
+# def get_predictions(model, dataloader):
+#     """
+#     Generates predictions using a trained model.
+
+#     Args:
+#         model (torch.nn.Module): The trained model.
+#         dataloader (torch.utils.data.DataLoader): DataLoader containing the validation or test dataset.
+#         device (str, optional): Device to run the model on ('cuda' or 'cpu'). Default is 'cuda'.
+
+#     Returns:
+#         list of numpy arrays: List of predicted query masks as NumPy arrays.
+#     """
+
+#     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+#     model.to(device)
+#     model.eval()  # Set the model to evaluation mode
+    
+#     predictions = []
+    
+#     with torch.no_grad():  # Disable gradient computation
+#         for support_imgs, support_masks, query_img, _ in dataloader:
+#             # Move inputs to the specified device
+#             support_imgs = torch.cat(support_imgs).to(device)
+#             support_masks = torch.cat(support_masks).to(device)
+#             query_img = query_img.to(device)
+            
+#             # Get model prediction
+#             query_pred = model(support_imgs, query_img,support_masks)
+#             query_pred = torch.sigmoid(query_pred.squeeze(1))  # Apply sigmoid activation
+            
+#             # Convert to NumPy array and store
+#             query_pred = query_pred.cpu().numpy()  # Move to CPU before converting
+#             predictions.extend(query_pred)
+
+#     return predictions  # List of predicted query masks
 
 
 def reconstruct(dataloader, tile_list, save_folder=None):
@@ -209,13 +352,6 @@ def reconstruct(dataloader, tile_list, save_folder=None):
             reconstructed_image = (reconstructed_image * 255).astype(np.uint8)
             image_save_path = os.path.join(save_folder, f"reconstructed_{image_idx + 1}.png")
             Image.fromarray(reconstructed_image).save(image_save_path)
-            
-                # Display the reconstructed image
-        plt.figure(figsize=(6, 6))
-        plt.imshow(reconstructed_image, cmap='gray')
-        plt.title(f'Reconstructed Image {image_idx + 1}')
-        plt.show()
-
 
     return reconstructed_images
 
@@ -340,6 +476,7 @@ def evaluate_IU(dataloader, predictions, th=0.5):
     correct_pixels = 0
 
     for file, pred_mask in zip(dataset.label_files, predictions):
+        print(file)
         # Load ground truth label
         label = Image.open(file).convert('L')
         label = np.array(label, dtype=np.uint8) / 255
@@ -419,3 +556,44 @@ def match_score(pred_component, gt_component):
     intersection = len(pred_set & gt_set)
     union = len(pred_set | gt_set)
     return intersection / (union + 1e-8)
+
+
+def dice_loss(pred, target, weight_pos=1.0, weight_neg=1.0, epsilon=1e-6):
+    """Compute weighted Dice Loss for binary segmentation."""
+    pred_prob = torch.sigmoid(pred)  # Convert logits to probabilities
+
+    # Flatten tensors
+    pred_flat = pred_prob.view(-1)
+    target_flat = target.view(-1)
+
+    # Compute intersection and union
+    intersection = torch.sum(weight_pos * pred_flat * target_flat)
+    union = torch.sum(weight_pos * pred_flat) + torch.sum(weight_neg * target_flat)
+
+    # Compute Dice coefficient
+    dice_coeff = (2. * intersection + epsilon) / (union + epsilon)
+
+    # Return Dice loss
+    return 1 - dice_coeff
+
+def focal_loss(pred, target, alpha=0.25, gamma=2.0, epsilon=1e-6):
+    """Compute Focal Loss for binary segmentation."""
+    # Compute BCE loss
+    bce_loss = F.binary_cross_entropy_with_logits(pred, target, reduction='none')
+
+    # Convert logits to probabilities
+    pred_prob = torch.sigmoid(pred)
+
+    # Compute p_t (probability of target class)
+    p_t = target * pred_prob + (1 - target) * (1 - pred_prob)
+
+    # Compute focal weight
+    focal_weight = (1 - p_t) ** gamma
+
+    # Apply alpha balancing
+    alpha_factor = alpha * target + (1 - alpha) * (1 - target)
+
+    # Compute final loss
+    loss = alpha_factor * focal_weight * bce_loss
+
+    return loss.mean()
