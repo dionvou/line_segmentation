@@ -1,3 +1,3 @@
-# line_segmentation
+# few_shot_text_line_segmentation
 
-A project based on ICDAR2025 competition about few shot line segmentation.
+Few shot text line segmentation project
